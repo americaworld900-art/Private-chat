@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Private Chat</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+* { box-sizing: border-box; }
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+    background: #101827;
+    color: white;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+}
+.container {
+    width: 95%;
+    max-width: 450px;
+    background: #1e293b;
+    padding: 25px;
+    border-radius: 18px;
+    box-shadow: 0 10px 40px #0006;
+}
+h2 { text-align: center; color: #38bdf8; }
+input {
+    width: 100%;
+    padding: 14px;
+    margin: 10px 0;
+    border: none;
+    border-radius: 9px;
+    background: #334155;
+    color: white;
+    font-size: 15px;
+}
+button {
+    width: 100%;
+    padding: 13px;
+    border: none;
+    border-radius: 9px;
+    background: #0284c7;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+    margin-top: 10px;
+}
+#chatPage { display: none; }
+#messages {
+    height: 350px;
+    overflow-y: auto;
+    background: #0f172a;
+    padding: 12px;
+    border-radius: 10px;
+    margin: 15px 0;
+}
+.message {
+    background: #334155;
+    padding: 10px;
+    margin: 8px 0;
+    border-radius: 9px;
+    overflow-wrap: anywhere;
+}
+.time {
+    display: block;
+    font-size: 10px;
+    color: #94a3b8;
+    margin-top: 5px;
+}
+.error { color: #f87171; text-align: center; }
+</style>
+</head>
+<body>
+<div class="container">
+    <h2>🔐 Private Chat</h2>
+
+    <div id="loginPage">
+        <div id="createSection">
+            <h3>Create Your Chat</h3>
+            <input type="password" id="newPassword" placeholder="Create chat password">
+            <button onclick="createRoom()">Create Private Chat</button>
+        </div>
+
+        <hr>
+
+        <div id="joinSection">
+            <h3>Join Chat</h3>
+            <input type="password" id="joinPassword" placeholder="Enter chat password">
+            <button onclick="joinRoom()">Join Chat</button>
+        </div>
+
+        <p class="error" id="error"></p>
+    </div>
+
+    <div id="chatPage">
+        <h3>💬 Your Private Chat</h3>
+        <p id="shareLink"></p>
+        <button onclick="copyLink()">Copy Chat Link</button>
+        <div id="messages"></div>
+        <input id="messageInput" placeholder="Type your message..."
+               onkeydown="if(event.key==='Enter') sendMessage()">
+        <button onclick="sendMessage()">Send Message</button>
+    </div>
+</div>
+
+<script>
+const socket = io();
+
+let roomId = new URLSearchParams(window.location.search).get("room");
+let connected = false;
+
+if (roomId) {
+    document.getElementById("createSection").style.display = "none";
+}
+
+async function createRoom() {
+    const password = document.getElementById("newPassword").value;
+
+    try {
+        const response = await fetch("/create-room", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ password })
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            showError(result.error || "Could not create room.");
+            return;
+        }
+
+        roomId = result.roomId;
+        window.history.replaceState({}, "", "?room=" + encodeURIComponent(roomId));
+        document.getElementById("createSection").style.display = "none";
+        document.getElementById("joinPassword").value = password;
+        joinRoom();
+    } catch (error) {
+        showError("Server सँग जडान हुन सकेन।");
+    }
+}
+
+function joinRoom() {
+    const password = document.getElementById("joinPassword").value;
+
+    if (!roomId || !password) {
+        showError("Please enter the room password.");
+        return;
+    }
+
+    socket.emit("joinRoom", { roomId, password });
+}
+
+socket.on("joined", (history) => {
+    connected = true;
+    document.getElementById("loginPage").style.display = "none";
+    document.getElementById("chatPage").style.display = "block";
+    document.getElementById("shareLink").textContent =
+        "Share this link: " + window.location.href;
+
+    document.getElementById("messages").innerHTML = "";
+    history.forEach(addMessage);
+});
+
+socket.on("errorMessage", (message) => showError(message));
+
+socket.on("newMessage", (data) => addMessage(data));
+
+function sendMessage() {
+    if (!connected) return;
+
+    const input = document.getElementById("messageInput");
+    const message = input.value.trim();
+
+    if (!message) return;
+
+    socket.emit("sendMessage", message);
+    input.value = "";
+}
+
+function addMessage(data) {
+    const div = document.createElement("div");
+    div.className = "message";
+
+    const content = document.createElement("span");
+    content.textContent = data.message;
+
+    const time = document.createElement("small");
+    time.className = "time";
+    time.textContent = data.time;
+
+    div.appendChild(content);
+    div.appendChild(time);
+
+    const messages = document.getElementById("messages");
+    messages.appendChild(div);
+    messages.scrollTop = messages.scrollHeight;
+}
+
+async function copyLink() {
+    try {
+        await navigator.clipboard.writeText(window.location.href);
+        alert("Chat link copied!");
+    } catch (error) {
+        showError("Link copy हुन सकेन।");
+    }
+}
+
+function showError(message) {
+    document.getElementById("error").textContent = message;
+}
+</script>
+</body>
+</html>
